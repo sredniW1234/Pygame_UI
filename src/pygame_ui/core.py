@@ -1,6 +1,7 @@
+from typing import Optional, Literal
 from functools import total_ordering
 from dataclasses import dataclass
-from typing import Optional, Literal
+from textwrap import wrap
 from enum import Enum
 import pygame
 
@@ -131,6 +132,15 @@ class Application:
         self.running: bool = True
 
         self.ui_elements: list[UIElement] = []
+
+    def remove_element(self, element: "UIElement"):
+        """Removes an element from the application and it's parent"""
+        # Element guaranteed to be inside of application
+        if isinstance(element.parent, Container):
+            element.parent.remove_child(element)
+
+        if self.ui_elements.index(element) != -1:
+            self.ui_elements.remove(element)
 
     def draw(self):
         """
@@ -297,7 +307,7 @@ class Container(UIElement):
             available_space.x -= child.size.x
         return available_space
 
-    def _fit(self, visible_children):
+    def _fit(self, visible_children) -> Size:
         """
         Calculates the total size required to fit all visible children, including gap and padding.
         """
@@ -316,7 +326,8 @@ class Container(UIElement):
         # Add padding to total width and height
         total_size.x += self.padding[0] + self.padding[2]
         total_size.y += self.padding[1] + self.padding[3]
-        return total_size
+        # Don't set return total_size if there are no children
+        return total_size if len(visible_children) > 0 else self.size
 
     def _calculate_size(self) -> None:
         print("Calculating size for:", self.name)
@@ -332,7 +343,8 @@ class Container(UIElement):
                 available_space = self.parent.get_child_available_space(
                     self, LayoutDirection.LEFT_TO_RIGHT
                 )
-                self.size.x += available_space.x // (len(visible_children) - 1)
+                self.size.x += available_space.x
+
                 self.size.y = self._fit(visible_children).y  # Fit Y
         elif self.size_mode == SizeMode.GROWY:
             # Grow to fill available space on Y axis
@@ -340,7 +352,7 @@ class Container(UIElement):
                 available_space = self.parent.get_child_available_space(
                     self, LayoutDirection.TOP_TO_BOTTOM
                 )
-                self.size.y += available_space.y // (len(visible_children) - 1)
+                self.size.y += available_space.y  # Take up the available space
                 self.size.x = self._fit(visible_children).x  # Fit X
         # Clamp size to min and max
         if self.size < self.min_size:
@@ -348,7 +360,7 @@ class Container(UIElement):
         elif self.max_size and self.size > self.max_size:
             self.size = self.max_size
 
-    def _calculate_position(self):
+    def _calculate_position(self) -> None:
         """
         Calculates and sets the position of each child in this container based on layout direction and padding.
         """
@@ -368,7 +380,7 @@ class Container(UIElement):
                 offset.y += element.size.y
                 offset.y += self.gap * 1 if element != self.children[-1] else 0
 
-    def update_surface(self):
+    def update_surface(self) -> None:
         """
         Updates the surface for this container and all child containers.
         """
@@ -377,7 +389,7 @@ class Container(UIElement):
                 child.update_surface()
         return super().update_surface()
 
-    def add_child(self, child: UIElement):
+    def add_child(self, child: UIElement) -> None:
         """
         Adds a child UI element to this container and recalculates layout.
         """
@@ -392,7 +404,17 @@ class Container(UIElement):
         self.recalculate()
         print()
 
-    def recalculate(self):
+    def remove_child(self, child: UIElement) -> UIElement | None:
+        """
+        Removes a child UI element from this container and recalculates layout.
+        """
+        if self.children.index(child) != -1:
+            child.parent = None
+            self.children.remove(child)
+            self.recalculate()
+            return child
+
+    def recalculate(self) -> None:
         """
         Recalculates the size and position of all children, updating layout and surfaces.
         """
@@ -413,7 +435,7 @@ class Container(UIElement):
                 child._calculate_position()
         self.update_surface()
 
-    def draw(self, surface: pygame.SurfaceType):
+    def draw(self, surface: pygame.SurfaceType) -> None:
         """
         Draws the container and its children to the given surface.
 
@@ -447,4 +469,173 @@ class Container(UIElement):
         """
         Returns a string representation of the container for debugging.
         """
-        return f"<Container size={self.size} position={self.position} children={len(self.children)}>"
+        return f"<{self.__class__.__name__} size={self.size} position={self.position} children={len(self.children)}>"
+
+
+class Text(UIElement):
+    """
+    A text element class
+    """
+
+    def __init__(
+        self,
+        text: str,
+        position: tuple[int, int] = (0, 0),
+        font: pygame.font.Font | None = None,
+        color: pygame.Color | tuple[int, int, int] = (0, 0, 0),
+    ):
+        """
+        Simple Text element to handle displaying a single line of text
+
+        Args:
+            size (Size | tuple[int, int]): Size of the element.
+            position (tuple[int, int]): Initial position of the element.
+        """
+
+        if not pygame.font.get_init():
+            pygame.font.init()
+
+        self.text: str = text
+        self.font: pygame.font.Font = (
+            font if font else pygame.font.SysFont("Consolas", 30)
+        )
+        self.color = color
+        self.text_surface = self.font.render(self.text, True, self.color)
+        self.size = Size(*self.text_surface.get_size())
+        super().__init__(self.size, position)
+        self.update_surface()
+
+    def set_text(self, new_text: str):
+        """
+        Replaces the text.
+
+        Args:
+            new_text (str): The new text to set it to
+        """
+        self.text = new_text
+        self.update_surface()
+
+    def update_surface(self):
+        self.surface = self.font.render(self.text, True, self.color)
+        self.size = Size(*self.text_surface.get_size())
+
+    def draw(self, surface: pygame.Surface):
+        surface.blit(self.surface, self.position)
+
+
+class Label(Container):
+    def __init__(
+        self,
+        text: str,
+        size: Size | tuple[int, int] = (100, 30),
+        position: tuple[int, int] = (0, 0),
+        font: pygame.font.Font | None = None,
+        color: pygame.Color | tuple[int, int, int] = (0, 0, 0),
+        bg_color: pygame.Color | tuple = pygame.Color(0, 0, 0, 0),
+        **kwargs,
+    ) -> None:
+        """
+        A simple single-line text label.
+
+        Args:
+            text (str): The text to display in the label.
+            size (Size | tuple[int, int]): The size of the label.
+            position (tuple[int, int]): The position of the label.
+            font (pygame.font.Font | None): The font to use for the text. If None, a default font is used.
+            color (pygame.Color | tuple[int, int, int]): The color of the text.
+            bg_color (pygame.Color | tuple): The background color of the label.
+            **kwargs: Additional keyword arguments for customization
+                - padding (int | tuple[int, int, int, int]): Padding around the label's content (default: 0)
+                - border_color (pygame.Color): Color of the label's border (default: same as background color)
+        """
+
+        self.text_element = Text(text, font=font, color=color)
+
+        super().__init__(self.text_element.size, position, bg_color, **kwargs)
+
+        self.text = text
+        self.font = font
+
+        if self.size_mode == SizeMode.FIXED:
+            self.size = Size(*size)
+
+    def draw(self, surface: pygame.SurfaceType):
+        if not self.visible:
+            return
+        # Draw border/background
+        self.surface.fill(self.border_color)
+        center_surf = self.surface.subsurface(
+            pygame.Rect(
+                self.padding[0],  # left
+                self.padding[1],  # top
+                self.size.x - self.padding[2] * 2,  # right
+                self.size.y - self.padding[3] * 2,  # bottom
+            )
+        )
+        center_surf.fill(self.color)
+        # Draw text
+        self.text_element.draw(self.surface)
+        surface.blit(self.surface, self.position)
+
+
+class MultiLineLabel(Container):
+    def __init__(
+        self,
+        text: str,
+        size: Size | tuple[int, int] = (100, 30),
+        position: tuple[int, int] = (0, 0),
+        font: pygame.font.Font | None = None,
+        text_color: pygame.Color | tuple[int, int, int] = (0, 0, 0),
+        bg_color: pygame.Color | tuple = pygame.Color(255, 255, 255),
+        **kwargs,
+    ) -> None:
+        """
+        A multi-line text label that automatically wraps text.
+
+        Args:
+            text (str): The text to display in the label.
+            size (Size | tuple[int, int]): The size of the label.
+            position (tuple[int, int]): The position of the label.
+            font (pygame.font.Font | None): The font to use for the text. If None, a default font is used.
+            text_color (pygame.Color | tuple[int, int, int]): The color of the text
+            bg_color (pygame.Color | tuple): The background color of the label.
+            **kwargs: Additional keyword arguments for customization
+                - padding (int | tuple[int, int, int, int]): Padding around the label's content (default: 0)
+                - border_color (pygame.Color): Color of the label's border (default: same as background color)
+        """
+        super().__init__(size, position, bg_color, **kwargs)
+        self.layout_direction = LayoutDirection.TOP_TO_BOTTOM
+        self.add_child(Label(text, font=font, color=text_color))
+
+        self.text = text
+        self.font = font if font else self.children[0].text_element.font  # type: ignore
+        self.max_line_length = 25  # Max characters per line
+        self.text_color = text_color
+
+        self._text_to_labels(text)
+
+    def add_child(self, child: UIElement):
+        """
+        Adds a child UI element to this container and recalculates layout.
+        """
+        if not isinstance(child, Label):
+            raise TypeError("MultiLineLabel can only contain Label children.")
+        return super().add_child(child)
+
+    def _text_to_labels(self, text):
+        """Splits the text into multiple labels"""
+        lines = text.split("\n")  # Split by existing newlines
+        # Further split lines that exceed max_line_length
+        lines = [
+            subline for line in lines for subline in wrap(line, self.max_line_length)
+        ]
+
+        # Clear children
+        if app := get_application():
+            for child in self.children:
+                app.remove_element(child)
+
+        for line in lines:
+            self.add_child(Label(line, font=self.font, color=self.text_color))
+
+        self.text = "".join([f"{line}\n" for line in lines])
