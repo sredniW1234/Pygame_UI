@@ -4,6 +4,7 @@ from pygame_ui import (
     LayoutDirection,
     SizeMode,
     MultiLineLabel,
+    Label,
     Text,
 )
 import pygame
@@ -21,15 +22,21 @@ rect = Container(
     size_mode=SizeMode.FIXED,
     # justify=Justify.CENTER,
 )
-text = MultiLineLabel(
-    "Hello! This is an amazing test that was created by sredniW!",
+text = Text("This is a standard Text!")
+rect.add_child(text)
+
+label = Label("This is an ordinary single-line label!")
+rect.add_child(label)
+
+multiLable = MultiLineLabel(
+    "This an Multi-Line Label with auto word wrapping!",
     name="My Label",
     # font=pygame.font.SysFont("arial", 15),
     padding=10,
     bg_color=(255, 0, 0),
-    # border_color=(0, 0, 0),
+    border_color=(0, 0, 0),
 )
-rect.add_child(text)
+rect.add_child(multiLable)
 
 running = True
 while running:

@@ -5,7 +5,6 @@ from .core import (
     LayoutDirection,
     Size,
     SizeMode,
-    Justify,
     Text,
     Label,
     MultiLineLabel,

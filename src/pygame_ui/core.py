@@ -26,8 +26,7 @@ class LayoutDirection(Enum):
     GRID = 4  # Not yet implemented
     ABSOLUTE = 5  # Not yet implemented
 
-
-class Justify(Enum):
+    # class Justify(Enum):
     """
     Enum for justifying positioning children elements.
 
@@ -91,6 +90,15 @@ class Size:
 
 
 _APPLICATION: Optional["Application"] = None  # Stores the active application instance
+_HORIZONTAL: tuple[LayoutDirection, LayoutDirection] = (
+    LayoutDirection.LEFT_TO_RIGHT,
+    LayoutDirection.RIGHT_TO_LEFT,
+)
+_VERTICAL: tuple[LayoutDirection, LayoutDirection] = (
+    LayoutDirection.TOP_TO_BOTTOM,
+    LayoutDirection.BOTTOM_TO_TOP,
+)
+_GROWABLE: tuple[SizeMode, SizeMode] = (SizeMode.GROWX, SizeMode.GROWY)
 
 
 def get_application() -> Optional["Application"]:
@@ -241,7 +249,7 @@ class Container(UIElement):
         self.layout_direction = kwargs.get(
             "layout_direction", LayoutDirection.LEFT_TO_RIGHT
         )
-        self.justify: Justify = kwargs.get("justify", Justify.NORMAL)
+        # self.justify: Justify = kwargs.get("justify", Justify.NORMAL)
 
         # Positioning
         self.padding: tuple[int, int, int, int] = kwargs.get(
@@ -287,22 +295,22 @@ class Container(UIElement):
         )
         if direction == LayoutDirection.LEFT_TO_RIGHT:
             # Children ordered horizontally
-            if self.layout_direction == LayoutDirection.LEFT_TO_RIGHT:
+            if self.layout_direction in _HORIZONTAL:
                 for child in self._visible_children():
                     available_space.x -= child.size.x
                 # Account for gap
                 available_space.x -= self.gap * (len(self.children) - 1)
-            elif self.layout_direction == LayoutDirection.TOP_TO_BOTTOM:
+            elif self.layout_direction in _VERTICAL:
                 available_space.x -= child.size.x
             available_space.y -= child.size.y
         elif direction == LayoutDirection.TOP_TO_BOTTOM:
             # Children ordered vertically
-            if self.layout_direction == LayoutDirection.TOP_TO_BOTTOM:
+            if self.layout_direction in _VERTICAL:
                 for child in self._visible_children():
                     available_space.y -= child.size.y
                 # Account for gap
                 available_space.y -= self.gap * (len(self.children) - 1)
-            elif self.layout_direction == LayoutDirection.LEFT_TO_RIGHT:
+            elif self.layout_direction in _HORIZONTAL:
                 available_space.y -= child.size.y
             available_space.x -= child.size.x
         return available_space
@@ -313,15 +321,15 @@ class Container(UIElement):
         """
         total_size = Size(0, 0)
         for child in visible_children:
-            if self.layout_direction == LayoutDirection.LEFT_TO_RIGHT:
+            if self.layout_direction in _HORIZONTAL:
                 total_size.x += child.size.x
                 total_size.y = max(total_size.y, child.size.y)
-            elif self.layout_direction == LayoutDirection.TOP_TO_BOTTOM:
+            elif self.layout_direction in _VERTICAL:
                 total_size.y += child.size.y
                 total_size.x = max(total_size.x, child.size.x)
-        if self.layout_direction == LayoutDirection.LEFT_TO_RIGHT:
+        if self.layout_direction in _HORIZONTAL:
             total_size.x += self.gap * (len(visible_children) - 1)
-        elif self.layout_direction == LayoutDirection.TOP_TO_BOTTOM:
+        elif self.layout_direction in _VERTICAL:
             total_size.y += self.gap * (len(visible_children) - 1)
         # Add padding to total width and height
         total_size.x += self.padding[0] + self.padding[2]
@@ -340,19 +348,23 @@ class Container(UIElement):
         elif self.size_mode == SizeMode.GROWX:
             # Grow to fill available space on X axis
             if self.parent and isinstance(self.parent, Container):
-                available_space = self.parent.get_child_available_space(
-                    self, LayoutDirection.LEFT_TO_RIGHT
-                )
-                self.size.x += available_space.x
+                available_space = Size(1, 1)
+                while available_space.x != 0:
+                    available_space = self.parent.get_child_available_space(
+                        self, LayoutDirection.LEFT_TO_RIGHT
+                    )
+                    self.size.x += available_space.x
 
                 self.size.y = self._fit(visible_children).y  # Fit Y
         elif self.size_mode == SizeMode.GROWY:
             # Grow to fill available space on Y axis
             if self.parent and isinstance(self.parent, Container):
-                available_space = self.parent.get_child_available_space(
-                    self, LayoutDirection.TOP_TO_BOTTOM
-                )
-                self.size.y += available_space.y  # Take up the available space
+                available_space = Size(1, 1)
+                while available_space.y != 0:
+                    available_space = self.parent.get_child_available_space(
+                        self, LayoutDirection.TOP_TO_BOTTOM
+                    )
+                    self.size.y += available_space.y  # Take up the available space
                 self.size.x = self._fit(visible_children).x  # Fit X
         # Clamp size to min and max
         if self.size < self.min_size:
@@ -365,9 +377,26 @@ class Container(UIElement):
         Calculates and sets the position of each child in this container based on layout direction and padding.
         """
         print("Calculating position for:", self.name)
-        offset = Size(self.padding[0], self.padding[1])
+
+        # Start offset at top left
+        if self.layout_direction in (
+            LayoutDirection.LEFT_TO_RIGHT,
+            LayoutDirection.TOP_TO_BOTTOM,
+        ):
+            offset = Size(self.padding[0], self.padding[1])
+        elif self.layout_direction == LayoutDirection.RIGHT_TO_LEFT:
+            offset = Size(self.size.x - self.padding[2], self.padding[1])
+        else:
+            offset = Size(self.padding[1], self.size.y - self.padding[3])
+
         for element in self._visible_children():
             # Set the element's position
+            if self.layout_direction == LayoutDirection.RIGHT_TO_LEFT:
+                offset.x -= element.size.x
+                offset.x -= self.gap * 1 if element != self.children[0] else 0
+            elif self.layout_direction == LayoutDirection.BOTTOM_TO_TOP:
+                offset.y -= element.size.y
+                offset.y -= self.gap * 1 if element != self.children[0] else 0
             element.position = (
                 offset.x,
                 offset.y,
@@ -422,7 +451,7 @@ class Container(UIElement):
         growable_children = []
         for child in self._visible_children():
             if isinstance(child, Container):
-                if child.size_mode in (SizeMode.GROWX, SizeMode.GROWY):
+                if child.size_mode in _GROWABLE:
                     growable_children.append(child)
                     continue
                 child._calculate_size()
@@ -451,15 +480,17 @@ class Container(UIElement):
             return
         # Draw border/background
         self.surface.fill(self.border_color)
-        center_surf = self.surface.subsurface(
-            pygame.Rect(
-                self.padding[0],  # left
-                self.padding[1],  # top
-                self.size.x - self.padding[2] * 2,  # right
-                self.size.y - self.padding[3] * 2,  # bottom
+        # print(self.size.x, self.name)
+        if self.size.x or self.size.y:
+            center_surf = self.surface.subsurface(
+                pygame.Rect(
+                    self.padding[0],  # left
+                    self.padding[1],  # top
+                    self.size.x - self.padding[2] * 2,  # right
+                    self.size.y - self.padding[3] * 2,  # bottom
+                )
             )
-        )
-        center_surf.fill(self.color)
+            center_surf.fill(self.color)
         # Draw children
         for child in self.children:
             child.draw(self.surface)
